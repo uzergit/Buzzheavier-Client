@@ -1,4 +1,4 @@
-# remotebuzzheavier
+# Remotebuzzheavierclient
 Free Buzzheavier uploader client
 
 All files are hosted on https://buzzheavier.com
