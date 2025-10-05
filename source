@@ -1,0 +1,326 @@
+@echo off
+setlocal EnableExtensions EnableDelayedExpansion
+
+rem ============================================================
+rem BuzzHeavier Uploader - Made by uzer Github: uzergit
+rem ============================================================
+
+set "APP_NAME=BuzzHeavier Uploader"
+set "SETTINGS_FILE=%~dp0buzz_settings.ini"
+set "TMP_RESPONSE=%~dp0buzz_response.tmp"
+set "LOG_FILE=%~dp0buzz_uploads.log"
+set "DEFAULT_MODE=anonymous"
+set "ACCOUNT_ID="
+
+rem ---------- Ensure settings file exists and load ----------
+if not exist "%SETTINGS_FILE%" (
+    >"%SETTINGS_FILE%" (
+        echo account=
+        echo default=anonymous
+    )
+)
+
+for /f "usebackq tokens=1* delims==" %%A in ("%SETTINGS_FILE%") do (
+    if /i "%%A"=="account" set "ACCOUNT_ID=%%B"
+    if /i "%%A"=="default" set "DEFAULT_MODE=%%B"
+)
+
+rem sanitize default mode: only "anonymous" or "account" allowed
+if /i not "%DEFAULT_MODE%"=="anonymous" if /i not "%DEFAULT_MODE%"=="account" set "DEFAULT_MODE=anonymous"
+
+rem ---------- Main Menu ----------
+:MENU
+cls
+echo ================================================
+echo  Buzzheavier client Made by uzergit on Github
+echo  https://github.com/uzergit/Buzzheavier-Client
+echo  Version: 1 - 5th October 2025
+echo ================================================
+echo.
+echo  1. Anonymous upload
+echo  2. Upload with token
+echo  3. Settings
+echo  4. Quit
+echo.
+echo  Quick upload: paste a full file path here and press Enter.
+echo ----------------------------------------------
+if defined ACCOUNT_ID (
+    echo  Current Account ID: [set]
+) else (
+    echo  Current Account ID: [not set]
+)
+echo  Default upload mode: %DEFAULT_MODE%
+echo ----------------------------------------------
+set "USER_INPUT="
+set /p "USER_INPUT=Select option (1-4) or paste a file path: "
+
+if "%USER_INPUT%"=="1" goto ANON_UPLOAD_PROMPT
+if "%USER_INPUT%"=="2" goto TOKEN_UPLOAD_PROMPT
+if "%USER_INPUT%"=="3" goto SETTINGS
+if "%USER_INPUT%"=="4" goto QUIT
+
+rem Quick upload path (if user pasted a file path)
+set "FILEPATH_RAW=%USER_INPUT%"
+if not defined FILEPATH_RAW goto MENU
+call :QUICK_UPLOAD "%FILEPATH_RAW%"
+goto MENU
+
+rem ---------- Quick Upload ----------
+:QUICK_UPLOAD
+set "INPUT_PATH=%~1"
+for %%I in ("%INPUT_PATH%") do (
+    set "FILEPATH=%%~fI"
+    set "FILENAME=%%~nxI"
+)
+if not exist "%FILEPATH%" (
+    echo.
+    echo Error: File not found: %INPUT_PATH%
+    call :PAUSE
+    goto :eof
+)
+if /i "%DEFAULT_MODE%"=="account" (
+    if defined ACCOUNT_ID (
+        call :DO_UPLOAD "token" "%FILEPATH%" "%FILENAME%"
+    ) else (
+        echo.
+        echo Default mode is token but no Account ID is set. Falling back to anonymous.
+        call :DO_UPLOAD "anonymous" "%FILEPATH%" "%FILENAME%"
+    )
+) else (
+    call :DO_UPLOAD "anonymous" "%FILEPATH%" "%FILENAME%"
+)
+
+goto :eof
+
+rem ---------- Anonymous Upload ----------
+:ANON_UPLOAD_PROMPT
+cls
+echo Anonymous upload
+echo -----------------
+set "FP="
+set /p "FP=Enter file path to upload: "
+if not defined FP goto MENU
+call :CHECK_AND_NORMALIZE "%FP%"
+if errorlevel 1 (
+    call :PAUSE
+    goto MENU
+)
+call :DO_UPLOAD "anonymous" "%FILEPATH%" "%FILENAME%"
+goto MENU
+
+rem ---------- Token Upload ----------
+:TOKEN_UPLOAD_PROMPT
+cls
+echo Upload with token
+echo -----------------
+if not defined ACCOUNT_ID (
+    echo Error: No Account ID set. Go to Settings to configure your token.
+    call :PAUSE
+    goto MENU
+)
+set "FP="
+set /p "FP=Enter file path to upload: "
+if not defined FP goto MENU
+call :CHECK_AND_NORMALIZE "%FP%"
+if errorlevel 1 (
+    call :PAUSE
+    goto MENU
+)
+call :DO_UPLOAD "token" "%FILEPATH%" "%FILENAME%"
+goto MENU
+
+rem ---------- Settings ----------
+:SETTINGS
+cls
+echo Settings
+echo --------
+echo  1. Set / change Account ID
+echo  2. Set default upload mode (anonymous or account token)
+echo  3. Clear Account ID
+echo  4. Show current settings
+echo  5. Reset to defaults
+echo  6. Back to main menu
+echo.
+set "SOPT="
+set /p "SOPT=Choose an option (1-6): "
+if "%SOPT%"=="1" goto SET_ACCOUNT
+if "%SOPT%"=="2" goto SET_DEFAULT
+if "%SOPT%"=="3" goto CLEAR_ACCOUNT
+if "%SOPT%"=="4" goto SHOW_SETTINGS
+if "%SOPT%"=="5" goto RESET_IN_SETTINGS
+goto MENU
+
+:SET_ACCOUNT
+cls
+set "NEWACC="
+set /p "NEWACC=Enter new Account ID (token): "
+if not defined NEWACC goto SETTINGS
+set "ACCOUNT_ID=%NEWACC%"
+call :SAVE_SETTINGS
+echo Saved.
+call :PAUSE
+goto SETTINGS
+
+:SET_DEFAULT
+cls
+echo Current default: %DEFAULT_MODE%
+echo  1. anonymous
+echo  2. account
+set "DM="
+set /p "DM=Choose default (1-2): "
+if "%DM%"=="1" set "DEFAULT_MODE=anonymous" & call :SAVE_SETTINGS & goto SETTINGS
+if "%DM%"=="2" set "DEFAULT_MODE=account" & call :SAVE_SETTINGS & goto SETTINGS
+goto SETTINGS
+
+:CLEAR_ACCOUNT
+cls
+set "ACCOUNT_ID="
+call :SAVE_SETTINGS
+echo Account ID cleared.
+call :PAUSE
+goto SETTINGS
+
+:SHOW_SETTINGS
+cls
+echo Current settings:
+echo -----------------
+echo Account ID: %ACCOUNT_ID%
+echo Default mode: %DEFAULT_MODE%
+echo Settings file: %SETTINGS_FILE%
+echo Upload log: %LOG_FILE%
+echo.
+call :PAUSE
+goto SETTINGS
+
+rem ---------- Reset to defaults (from Settings) ----------
+:RESET_IN_SETTINGS
+cls
+echo WARNING: This will delete ALL files in this folder and reset settings to defaults.
+echo It will remove settings, logs, temp files, and other files except this batch file.
+echo.
+set "BATNAME=%~nx0"
+echo This batch file that will be kept: %BATNAME%
+echo.
+set /p "CONF=Type YES to confirm and delete files, or anything else to cancel: "
+if /i not "%CONF%"=="YES" (
+    echo Cancelled.
+    call :PAUSE
+    goto SETTINGS
+)
+echo Deleting files...
+for %%F in (*) do (
+    if /i not "%%F"=="%BATNAME%" del /q "%%F" 2>nul
+)
+rem recreate default settings file
+set "ACCOUNT_ID="
+set "DEFAULT_MODE=anonymous"
+call :SAVE_SETTINGS
+echo Reset complete. Only %BATNAME% remains.
+call :PAUSE
+goto SETTINGS
+
+rem ---------- Upload Worker ----------
+:DO_UPLOAD
+set "MODE=%~1"
+set "FILEPATH=%~2"
+set "FILENAME_RAW=%~3"
+
+rem URL-encode filename (PowerShell)
+set "FILENAME_URL="
+for /f "usebackq delims=" %%E in (`powershell -NoProfile -Command "[System.Uri]::EscapeDataString('%FILENAME_RAW%')"`) do set "FILENAME_URL=%%E"
+if not defined FILENAME_URL set "FILENAME_URL=%FILENAME_RAW%"
+
+set "UPLOAD_URL=https://w.buzzheavier.com/%FILENAME_URL%"
+
+cls
+echo Uploading: %FILEPATH%
+echo Mode: %MODE%
+echo ----------------------------------------
+
+del /q "%TMP_RESPONSE%" 2>nul
+
+if /i "%MODE%"=="token" (
+    curl -# -T "%FILEPATH%" -H "Authorization: Bearer %ACCOUNT_ID%" "%UPLOAD_URL%" -o "%TMP_RESPONSE%"
+) else (
+    curl -# -T "%FILEPATH%" "%UPLOAD_URL%" -o "%TMP_RESPONSE%"
+)
+
+if errorlevel 1 (
+    echo.
+    echo Upload failed. curl error code: %errorlevel%
+    if exist "%TMP_RESPONSE%" (
+        echo Raw response:
+        type "%TMP_RESPONSE%"
+    )
+    call :PAUSE
+    goto MENU
+)
+
+rem --- Extract final shareable link from JSON reliably ---
+set "FINAL_LINK="
+for /f "usebackq delims=" %%J in (`powershell -NoProfile -Command ^
+    "try { $json = Get-Content -Raw '%TMP_RESPONSE%' | ConvertFrom-Json; if ($json.data.id) { Write-Output ('https://buzzheavier.com/' + $json.data.id) } elseif ($json.id) { Write-Output ('https://buzzheavier.com/' + $json.id) } } catch { }"`) do set "FINAL_LINK=%%J"
+
+if defined FINAL_LINK (
+    echo.
+    echo Upload complete.
+    echo Link: %FINAL_LINK%
+    echo %FINAL_LINK% | clip
+    echo.
+    cmd /c echo Copied to clipboard!
+    rem --- Append to log file with timestamp ---
+    for /f "usebackq delims=" %%T in (`powershell -NoProfile -Command "Write-Output ((Get-Date).ToString('yyyy-MM-dd HH:mm:ss'))"`) do set "TIMESTAMP=%%T"
+    if not defined TIMESTAMP set "TIMESTAMP=Unknown-Time"
+    >>"%LOG_FILE%" echo [%TIMESTAMP%] - %FILENAME_RAW% - %FINAL_LINK%
+    echo.
+    echo Entry saved in log: %LOG_FILE%
+) else (
+    echo.
+    echo Upload complete, but could not parse link.
+    echo Raw server response:
+    type "%TMP_RESPONSE%"
+    echo.
+    echo Note: the link above may still be valid; check the raw response for "data.id".
+)
+
+echo.
+echo.
+echo.
+echo  1. Return to main menu
+echo  2. Quit
+:AFTER_UPLOAD_CHOICE
+set "CHOICE="
+set /p "CHOICE=Select an option: "
+if "%CHOICE%"=="1" goto MENU
+if "%CHOICE%"=="2" goto QUIT
+echo Invalid choice, please enter 1 or 2.
+goto AFTER_UPLOAD_CHOICE
+
+rem ---------- Helpers ----------
+:CHECK_AND_NORMALIZE
+set "INPUT=%~1"
+for %%I in ("%INPUT%") do (
+    set "FILEPATH=%%~fI"
+    set "FILENAME=%%~nxI"
+)
+if not exist "%FILEPATH%" (
+    echo Error: File not found: %INPUT%
+    exit /b 1
+)
+exit /b 0
+
+:SAVE_SETTINGS
+>"%SETTINGS_FILE%" (
+    echo account=%ACCOUNT_ID%
+    echo default=%DEFAULT_MODE%
+)
+exit /b 0
+
+:PAUSE
+echo.
+pause
+goto :eof
+
+rem ---------- Quit/Exit ----------
+:QUIT
+endlocal & exit
