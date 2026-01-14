@@ -8,25 +8,40 @@ rem ============================================================
 set "APP_NAME=BuzzHeavier Uploader"
 set "SETTINGS_FILE=%~dp0buzz_settings.ini"
 set "TMP_RESPONSE=%~dp0buzz_response.tmp"
+set "TMP_STATUS=%~dp0buzz_status.tmp"
 set "LOG_FILE=%~dp0buzz_uploads.log"
 set "DEFAULT_MODE=anonymous"
+set "LAST_MODE="
 set "ACCOUNT_ID="
+set "PARENT_ID="
+set "LOCATION_ID="
+set "NOTE_TEXT="
 
 rem ---------- Ensure settings file exists and load ----------
 if not exist "%SETTINGS_FILE%" (
     >"%SETTINGS_FILE%" (
         echo account=
         echo default=anonymous
+        echo last_mode=
     )
 )
 
 for /f "usebackq tokens=1* delims==" %%A in ("%SETTINGS_FILE%") do (
     if /i "%%A"=="account" set "ACCOUNT_ID=%%B"
     if /i "%%A"=="default" set "DEFAULT_MODE=%%B"
+    if /i "%%A"=="last_mode" set "LAST_MODE=%%B"
 )
 
 rem sanitize default mode: only "anonymous" or "account" allowed
 if /i not "%DEFAULT_MODE%"=="anonymous" if /i not "%DEFAULT_MODE%"=="account" set "DEFAULT_MODE=anonymous"
+if /i "%LAST_MODE%"=="account" set "LAST_MODE=token"
+if not defined LAST_MODE (
+    if /i "%DEFAULT_MODE%"=="account" (
+        set "LAST_MODE=token"
+    ) else (
+        set "LAST_MODE=%DEFAULT_MODE%"
+    )
+)
 
 rem ---------- Main Menu ----------
 :MENU
@@ -40,7 +55,8 @@ echo.
 echo  1. Anonymous upload
 echo  2. Upload with token
 echo  3. Settings
-echo  4. Quit
+echo  4. API tools
+echo  5. Quit
 echo.
 echo  Quick upload: paste a full file path here and press Enter.
 echo ----------------------------------------------
@@ -49,15 +65,18 @@ if defined ACCOUNT_ID (
 ) else (
     echo  Current Account ID: [not set]
 )
+if not defined LAST_MODE set "LAST_MODE=%DEFAULT_MODE%"
 echo  Default upload mode: %DEFAULT_MODE%
+echo  Last upload mode: %LAST_MODE%
 echo ----------------------------------------------
 set "USER_INPUT="
-set /p "USER_INPUT=Select option (1-4) or paste a file path: "
+set /p "USER_INPUT=Select option (1-5) or paste a file path: "
 
 if "%USER_INPUT%"=="1" goto ANON_UPLOAD_PROMPT
 if "%USER_INPUT%"=="2" goto TOKEN_UPLOAD_PROMPT
 if "%USER_INPUT%"=="3" goto SETTINGS
-if "%USER_INPUT%"=="4" goto QUIT
+if "%USER_INPUT%"=="4" goto API_TOOLS
+if "%USER_INPUT%"=="5" goto QUIT
 
 rem Quick upload path (if user pasted a file path)
 set "FILEPATH_RAW=%USER_INPUT%"
@@ -78,12 +97,12 @@ if not exist "%FILEPATH%" (
     call :PAUSE
     goto :eof
 )
-if /i "%DEFAULT_MODE%"=="account" (
+if /i "%LAST_MODE%"=="token" (
     if defined ACCOUNT_ID (
         call :DO_UPLOAD "token" "%FILEPATH%" "%FILENAME%"
     ) else (
         echo.
-        echo Default mode is token but no Account ID is set. Falling back to anonymous.
+        echo Last mode was token but no Account ID is set. Falling back to anonymous.
         call :DO_UPLOAD "anonymous" "%FILEPATH%" "%FILENAME%"
     )
 ) else (
@@ -139,15 +158,18 @@ echo  2. Set default upload mode (anonymous or account token)
 echo  3. Clear Account ID
 echo  4. Show current settings
 echo  5. Reset to defaults
-echo  6. Back to main menu
+echo  6. Set last upload mode
+echo  7. Back to main menu
 echo.
 set "SOPT="
-set /p "SOPT=Choose an option (1-6): "
+set /p "SOPT=Choose an option (1-7): "
 if "%SOPT%"=="1" goto SET_ACCOUNT
 if "%SOPT%"=="2" goto SET_DEFAULT
 if "%SOPT%"=="3" goto CLEAR_ACCOUNT
 if "%SOPT%"=="4" goto SHOW_SETTINGS
 if "%SOPT%"=="5" goto RESET_IN_SETTINGS
+if "%SOPT%"=="6" goto SET_LAST_MODE
+if "%SOPT%"=="7" goto MENU
 goto MENU
 
 :SET_ACCOUNT
@@ -186,10 +208,22 @@ echo Current settings:
 echo -----------------
 echo Account ID: %ACCOUNT_ID%
 echo Default mode: %DEFAULT_MODE%
+echo Last upload mode: %LAST_MODE%
 echo Settings file: %SETTINGS_FILE%
 echo Upload log: %LOG_FILE%
 echo.
 call :PAUSE
+goto SETTINGS
+
+:SET_LAST_MODE
+cls
+echo Last upload mode: %LAST_MODE%
+echo  1. anonymous
+echo  2. token
+set "LM="
+set /p "LM=Choose last mode (1-2): "
+if "%LM%"=="1" set "LAST_MODE=anonymous" & call :SAVE_SETTINGS & goto SETTINGS
+if "%LM%"=="2" set "LAST_MODE=token" & call :SAVE_SETTINGS & goto SETTINGS
 goto SETTINGS
 
 rem ---------- Reset to defaults (from Settings) ----------
@@ -214,6 +248,7 @@ for %%F in (*) do (
 rem recreate default settings file
 set "ACCOUNT_ID="
 set "DEFAULT_MODE=anonymous"
+set "LAST_MODE="
 call :SAVE_SETTINGS
 echo Reset complete. Only %BATNAME% remains.
 call :PAUSE
@@ -224,6 +259,10 @@ rem ---------- Upload Worker ----------
 set "MODE=%~1"
 set "FILEPATH=%~2"
 set "FILENAME_RAW=%~3"
+set "PARENT_ID="
+set "LOCATION_ID="
+set "NOTE_TEXT="
+set "NOTE_B64="
 
 rem URL-encode filename (PowerShell)
 set "FILENAME_URL="
@@ -232,29 +271,61 @@ if not defined FILENAME_URL set "FILENAME_URL=%FILENAME_RAW%"
 
 set "UPLOAD_URL=https://w.buzzheavier.com/%FILENAME_URL%"
 
+if /i "%MODE%"=="token" (
+    set /p "PARENT_ID=Parent directory ID (optional, blank for root): "
+)
+set /p "LOCATION_ID=Location ID (optional, blank for default): "
+set /p "NOTE_TEXT=Note (optional, blank for none): "
+
+if defined NOTE_TEXT (
+    for /f "usebackq delims=" %%N in (`powershell -NoProfile -Command "[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes('%NOTE_TEXT%'))"`) do set "NOTE_B64=%%N"
+)
+
+if defined PARENT_ID (
+    set "UPLOAD_URL=https://w.buzzheavier.com/%PARENT_ID%/%FILENAME_URL%"
+)
+
+if defined LOCATION_ID (
+    if defined NOTE_B64 (
+        set "UPLOAD_URL=%UPLOAD_URL%?locationId=%LOCATION_ID%^&note=%NOTE_B64%"
+    ) else (
+        set "UPLOAD_URL=%UPLOAD_URL%?locationId=%LOCATION_ID%"
+    )
+) else if defined NOTE_B64 (
+    set "UPLOAD_URL=%UPLOAD_URL%?note=%NOTE_B64%"
+)
+
 cls
 echo Uploading: %FILEPATH%
 echo Mode: %MODE%
 echo ----------------------------------------
 
 del /q "%TMP_RESPONSE%" 2>nul
+del /q "%TMP_STATUS%" 2>nul
 
 if /i "%MODE%"=="token" (
-    curl -# -T "%FILEPATH%" -H "Authorization: Bearer %ACCOUNT_ID%" "%UPLOAD_URL%" -o "%TMP_RESPONSE%"
+    call :CURL_UPLOAD "Authorization: Bearer %ACCOUNT_ID%"
+    if errorlevel 1 goto CURL_FAILED
 ) else (
-    curl -# -T "%FILEPATH%" "%UPLOAD_URL%" -o "%TMP_RESPONSE%"
+    call :CURL_UPLOAD ""
+    if errorlevel 1 goto CURL_FAILED
 )
 
-if errorlevel 1 (
-    echo.
-    echo Upload failed. curl error code: %errorlevel%
-    if exist "%TMP_RESPONSE%" (
-        echo Raw response:
-        type "%TMP_RESPONSE%"
-    )
-    call :PAUSE
-    goto MENU
+goto AFTER_CURL
+
+:CURL_FAILED
+echo.
+echo Upload failed. curl error code: %errorlevel%
+if exist "%TMP_RESPONSE%" (
+    echo Raw response:
+    type "%TMP_RESPONSE%"
 )
+call :PAUSE
+set "LAST_MODE=%MODE%"
+call :SAVE_SETTINGS
+goto MENU
+
+:AFTER_CURL
 
 rem --- Extract final shareable link from JSON reliably ---
 set "FINAL_LINK="
@@ -274,6 +345,8 @@ if defined FINAL_LINK (
     >>"%LOG_FILE%" echo [%TIMESTAMP%] - %FILENAME_RAW% - %FINAL_LINK%
     echo.
     echo Entry saved in log: %LOG_FILE%
+    set "LAST_MODE=%MODE%"
+    call :SAVE_SETTINGS
 ) else (
     echo.
     echo Upload complete, but could not parse link.
@@ -281,6 +354,8 @@ if defined FINAL_LINK (
     type "%TMP_RESPONSE%"
     echo.
     echo Note: the link above may still be valid; check the raw response for "data.id".
+    set "LAST_MODE=%MODE%"
+    call :SAVE_SETTINGS
 )
 
 echo.
@@ -296,7 +371,150 @@ if "%CHOICE%"=="2" goto QUIT
 echo Invalid choice, please enter 1 or 2.
 goto AFTER_UPLOAD_CHOICE
 
+rem ---------- API Tools ----------
+:API_TOOLS
+cls
+echo API Tools (token required)
+echo --------------------------
+echo  1. Get account info
+echo  2. Get locations
+echo  3. Get root directory
+echo  4. Get directory by ID
+echo  5. Create directory
+echo  6. Rename item (file or directory)
+echo  7. Move item (file or directory)
+echo  8. Add note to file
+echo  9. Delete directory
+echo 10. Back to main menu
+echo.
+if not defined ACCOUNT_ID (
+    echo Error: No Account ID set. Go to Settings to configure your token.
+    call :PAUSE
+    goto MENU
+)
+set "APIOPT="
+set /p "APIOPT=Choose an option (1-10): "
+if "%APIOPT%"=="1" goto API_ACCOUNT
+if "%APIOPT%"=="2" goto API_LOCATIONS
+if "%APIOPT%"=="3" goto API_FS_ROOT
+if "%APIOPT%"=="4" goto API_FS_DIR
+if "%APIOPT%"=="5" goto API_FS_CREATE
+if "%APIOPT%"=="6" goto API_FS_RENAME
+if "%APIOPT%"=="7" goto API_FS_MOVE
+if "%APIOPT%"=="8" goto API_FS_NOTE
+if "%APIOPT%"=="9" goto API_FS_DELETE
+goto MENU
+
+:API_ACCOUNT
+cls
+echo Fetching account info...
+curl -s -H "Authorization: Bearer %ACCOUNT_ID%" "https://buzzheavier.com/api/account"
+echo.
+call :PAUSE
+goto API_TOOLS
+
+:API_LOCATIONS
+cls
+echo Fetching locations...
+curl -s -H "Authorization: Bearer %ACCOUNT_ID%" "https://buzzheavier.com/api/locations"
+echo.
+call :PAUSE
+goto API_TOOLS
+
+:API_FS_ROOT
+cls
+echo Fetching root directory...
+curl -s -H "Authorization: Bearer %ACCOUNT_ID%" "https://buzzheavier.com/api/fs"
+echo.
+call :PAUSE
+goto API_TOOLS
+
+:API_FS_DIR
+cls
+set "DIR_ID="
+set /p "DIR_ID=Enter directory ID: "
+if not defined DIR_ID goto API_TOOLS
+curl -s -H "Authorization: Bearer %ACCOUNT_ID%" "https://buzzheavier.com/api/fs/%DIR_ID%"
+echo.
+call :PAUSE
+goto API_TOOLS
+
+:API_FS_CREATE
+cls
+set "PARENT_DIR="
+set "NEW_NAME="
+set /p "PARENT_DIR=Enter parent directory ID: "
+if not defined PARENT_DIR goto API_TOOLS
+set /p "NEW_NAME=Enter new directory name: "
+if not defined NEW_NAME goto API_TOOLS
+curl -s -X POST -H "Authorization: Bearer %ACCOUNT_ID%" -H "Content-Type: application/json" -d "{\"name\":\"%NEW_NAME%\"}" "https://buzzheavier.com/api/fs/%PARENT_DIR%"
+echo.
+call :PAUSE
+goto API_TOOLS
+
+:API_FS_RENAME
+cls
+set "ITEM_ID="
+set "NEW_NAME="
+set /p "ITEM_ID=Enter file or directory ID: "
+if not defined ITEM_ID goto API_TOOLS
+set /p "NEW_NAME=Enter new name: "
+if not defined NEW_NAME goto API_TOOLS
+curl -s -X PATCH -H "Authorization: Bearer %ACCOUNT_ID%" -H "Content-Type: application/json" -d "{\"name\":\"%NEW_NAME%\"}" "https://buzzheavier.com/api/fs/%ITEM_ID%"
+echo.
+call :PAUSE
+goto API_TOOLS
+
+:API_FS_MOVE
+cls
+set "ITEM_ID="
+set "NEW_PARENT="
+set /p "ITEM_ID=Enter file or directory ID: "
+if not defined ITEM_ID goto API_TOOLS
+set /p "NEW_PARENT=Enter new parent directory ID: "
+if not defined NEW_PARENT goto API_TOOLS
+curl -s -X PUT -H "Authorization: Bearer %ACCOUNT_ID%" -H "Content-Type: application/json" -d "{\"parentId\":\"%NEW_PARENT%\"}" "https://buzzheavier.com/api/fs/%ITEM_ID%"
+echo.
+call :PAUSE
+goto API_TOOLS
+
+:API_FS_NOTE
+cls
+set "FILE_ID="
+set "NOTE_TEXT="
+set /p "FILE_ID=Enter file ID: "
+if not defined FILE_ID goto API_TOOLS
+set /p "NOTE_TEXT=Enter note text: "
+if not defined NOTE_TEXT goto API_TOOLS
+curl -s -X PUT -H "Authorization: Bearer %ACCOUNT_ID%" -H "Content-Type: application/json" -d "{\"note\":\"%NOTE_TEXT%\"}" "https://buzzheavier.com/api/fs/%FILE_ID%"
+echo.
+call :PAUSE
+goto API_TOOLS
+
+:API_FS_DELETE
+cls
+set "DIR_ID="
+set /p "DIR_ID=Enter directory ID to delete: "
+if not defined DIR_ID goto API_TOOLS
+curl -s -X DELETE -H "Authorization: Bearer %ACCOUNT_ID%" "https://buzzheavier.com/api/fs/%DIR_ID%"
+echo.
+call :PAUSE
+goto API_TOOLS
+
 rem ---------- Helpers ----------
+:CURL_UPLOAD
+set "AUTH_HEADER=%~1"
+set "HTTP_STATUS="
+if defined AUTH_HEADER (
+    curl -# -T "%FILEPATH%" -H "%AUTH_HEADER%" "%UPLOAD_URL%" -o "%TMP_RESPONSE%" -w "%{http_code}" > "%TMP_STATUS%"
+) else (
+    curl -# -T "%FILEPATH%" "%UPLOAD_URL%" -o "%TMP_RESPONSE%" -w "%{http_code}" > "%TMP_STATUS%"
+)
+if exist "%TMP_STATUS%" (
+    set /p "HTTP_STATUS="<"%TMP_STATUS%"
+)
+exit /b 0
+
 :CHECK_AND_NORMALIZE
 set "INPUT=%~1"
 for %%I in ("%INPUT%") do (
@@ -313,6 +531,7 @@ exit /b 0
 >"%SETTINGS_FILE%" (
     echo account=%ACCOUNT_ID%
     echo default=%DEFAULT_MODE%
+    echo last_mode=%LAST_MODE%
 )
 exit /b 0
 
