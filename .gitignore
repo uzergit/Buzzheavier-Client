@@ -1,0 +1,4 @@
+dist/
+/buzzheavier
+*.exe
+.DS_Store
