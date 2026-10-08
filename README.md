@@ -1,4 +1,7 @@
 # RemoteBuzzheavierClient
+
+im using Claude code from now on when working on this project 🤑🤑🤑
+
 Free Buzzheavier uploader client
 
 All files are hosted on [buzzheavier.com](https://buzzheavier.com).
