@@ -1,0 +1,74 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest, ubuntu-24.04-arm, macos-latest, macos-15-intel]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - run: go vet ./...
+      - run: go test -count=1 ./...
+      - name: Smoke test the real binary against buzzheavier.com
+        shell: bash
+        run: |
+          go build -o bh${{ runner.os == 'Windows' && '.exe' || '' }} .
+          ./bh --version
+          ./bh --help > /dev/null
+          ./bh locations
+
+  packages:
+    runs-on: macos-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - run: scripts/build.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: packages
+          path: dist/
+
+  linux-package:
+    needs: packages
+    strategy:
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: packages
+      - name: Run the universal Linux package
+        run: |
+          tar xzf Buzzheavier-Client-*-Linux-Universal.tar.gz
+          ./Buzzheavier-Client-*-Linux-Universal/buzzheavier --version
+          ./Buzzheavier-Client-*-Linux-Universal/buzzheavier locations
+
+  windows-package:
+    needs: packages
+    runs-on: windows-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: packages
+      - name: Run the Windows package
+        shell: pwsh
+        run: |
+          Expand-Archive (Get-Item Buzzheavier-Client-*-Windows-x64.zip) -DestinationPath out
+          $exe = Get-ChildItem out -Recurse -Filter BuzzheavierClient.exe | Select-Object -First 1
+          & $exe.FullName --version
+          & $exe.FullName locations
+          if ($LASTEXITCODE -ne 0) { exit 1 }
