@@ -1,9 +1,8 @@
 @echo off
 setlocal EnableExtensions EnableDelayedExpansion
 
-rem ============================================================
-rem BuzzHeavier Uploader - Made by uzer Github: uzergit
-rem ============================================================
+rem buzzheavier uploader - made by uzer (github.com/uzergit)
+rem uses curl + powershell, both come with windows 10/11
 
 set "APP_NAME=BuzzHeavier Uploader"
 set "SETTINGS_FILE=%~dp0buzz_settings.ini"
@@ -17,7 +16,7 @@ set "PARENT_ID="
 set "LOCATION_ID="
 set "NOTE_TEXT="
 
-rem ---------- Ensure settings file exists and load ----------
+rem first run: make a settings file, then read whatever is in it
 if not exist "%SETTINGS_FILE%" (
     >"%SETTINGS_FILE%" (
         echo account=
@@ -32,7 +31,7 @@ for /f "usebackq tokens=1* delims==" %%A in ("%SETTINGS_FILE%") do (
     if /i "%%A"=="last_mode" set "LAST_MODE=%%B"
 )
 
-rem sanitize default mode: only "anonymous" or "account" allowed
+rem anything weird in the ini just falls back to anonymous
 if /i not "%DEFAULT_MODE%"=="anonymous" if /i not "%DEFAULT_MODE%"=="account" set "DEFAULT_MODE=anonymous"
 if /i "%LAST_MODE%"=="account" set "LAST_MODE=token"
 if not defined LAST_MODE (
@@ -43,7 +42,7 @@ if not defined LAST_MODE (
     )
 )
 
-rem ---------- Main Menu ----------
+rem main menu
 :MENU
 cls
 echo ================================================
@@ -78,13 +77,13 @@ if "%USER_INPUT%"=="3" goto SETTINGS
 if "%USER_INPUT%"=="4" goto API_TOOLS
 if "%USER_INPUT%"=="5" goto QUIT
 
-rem Quick upload path (if user pasted a file path)
+rem not a menu number so it is probably a path someone pasted or dragged in
 set "FILEPATH_RAW=%USER_INPUT%"
 if not defined FILEPATH_RAW goto MENU
 call :QUICK_UPLOAD "%FILEPATH_RAW%"
 goto MENU
 
-rem ---------- Quick Upload ----------
+rem quick upload, reuses whatever mode was used last time
 :QUICK_UPLOAD
 set "INPUT_PATH=%~1"
 for %%I in ("%INPUT_PATH%") do (
@@ -111,7 +110,7 @@ if /i "%LAST_MODE%"=="token" (
 
 goto :eof
 
-rem ---------- Anonymous Upload ----------
+rem anon upload
 :ANON_UPLOAD_PROMPT
 cls
 echo Anonymous upload
@@ -127,7 +126,7 @@ if errorlevel 1 (
 call :DO_UPLOAD "anonymous" "%FILEPATH%" "%FILENAME%"
 goto MENU
 
-rem ---------- Token Upload ----------
+rem upload with the account token
 :TOKEN_UPLOAD_PROMPT
 cls
 echo Upload with token
@@ -148,7 +147,7 @@ if errorlevel 1 (
 call :DO_UPLOAD "token" "%FILEPATH%" "%FILENAME%"
 goto MENU
 
-rem ---------- Settings ----------
+rem settings
 :SETTINGS
 cls
 echo Settings
@@ -226,7 +225,7 @@ if "%LM%"=="1" set "LAST_MODE=anonymous" & call :SAVE_SETTINGS & goto SETTINGS
 if "%LM%"=="2" set "LAST_MODE=token" & call :SAVE_SETTINGS & goto SETTINGS
 goto SETTINGS
 
-rem ---------- Reset to defaults (from Settings) ----------
+rem reset - wipes this folder except the bat itself
 :RESET_IN_SETTINGS
 cls
 echo WARNING: This will delete ALL files in this folder and reset settings to defaults.
@@ -245,7 +244,7 @@ echo Deleting files...
 for %%F in (*) do (
     if /i not "%%F"=="%BATNAME%" del /q "%%F" 2>nul
 )
-rem recreate default settings file
+rem fresh settings file
 set "ACCOUNT_ID="
 set "DEFAULT_MODE=anonymous"
 set "LAST_MODE="
@@ -254,7 +253,7 @@ echo Reset complete. Only %BATNAME% remains.
 call :PAUSE
 goto SETTINGS
 
-rem ---------- Upload Worker ----------
+rem this is where the upload actually happens
 :DO_UPLOAD
 set "MODE=%~1"
 set "FILEPATH=%~2"
@@ -264,7 +263,7 @@ set "LOCATION_ID="
 set "NOTE_TEXT="
 set "NOTE_B64="
 
-rem URL-encode filename (PowerShell)
+rem filenames with spaces etc need encoding, let powershell deal with it
 set "FILENAME_URL="
 for /f "usebackq delims=" %%E in (`powershell -NoProfile -Command "[System.Uri]::EscapeDataString('%FILENAME_RAW%')"`) do set "FILENAME_URL=%%E"
 if not defined FILENAME_URL set "FILENAME_URL=%FILENAME_RAW%"
@@ -327,7 +326,7 @@ goto MENU
 
 :AFTER_CURL
 
-rem --- Extract final shareable link from JSON reliably ---
+rem grab the file id out of the json and turn it into a link
 set "FINAL_LINK="
 for /f "usebackq delims=" %%J in (`powershell -NoProfile -Command ^
     "try { $json = Get-Content -Raw '%TMP_RESPONSE%' | ConvertFrom-Json; if ($json.data.id) { Write-Output ('https://buzzheavier.com/' + $json.data.id) } elseif ($json.id) { Write-Output ('https://buzzheavier.com/' + $json.id) } } catch { }"`) do set "FINAL_LINK=%%J"
@@ -339,7 +338,7 @@ if defined FINAL_LINK (
     echo %FINAL_LINK% | clip
     echo.
     cmd /c echo Copied to clipboard!
-    rem --- Append to log file with timestamp ---
+    rem log it
     for /f "usebackq delims=" %%T in (`powershell -NoProfile -Command "Write-Output ((Get-Date).ToString('yyyy-MM-dd HH:mm:ss'))"`) do set "TIMESTAMP=%%T"
     if not defined TIMESTAMP set "TIMESTAMP=Unknown-Time"
     >>"%LOG_FILE%" echo [%TIMESTAMP%] - %FILENAME_RAW% - %FINAL_LINK%
@@ -371,7 +370,7 @@ if "%CHOICE%"=="2" goto QUIT
 echo Invalid choice, please enter 1 or 2.
 goto AFTER_UPLOAD_CHOICE
 
-rem ---------- API Tools ----------
+rem api stuff (needs the token)
 :API_TOOLS
 cls
 echo API Tools (token required)
@@ -501,7 +500,7 @@ echo.
 call :PAUSE
 goto API_TOOLS
 
-rem ---------- Helpers ----------
+rem helpers
 :CURL_UPLOAD
 set "AUTH_HEADER=%~1"
 set "HTTP_STATUS="
@@ -540,6 +539,6 @@ echo.
 pause
 goto :eof
 
-rem ---------- Quit/Exit ----------
+rem bye
 :QUIT
 endlocal & exit
