@@ -23,8 +23,14 @@ import (
 	"time"
 )
 
-var releasesURL = envOr("BUZZHEAVIER_UPDATE_URL",
-	"https://api.github.com/repos/uzergit/Buzzheavier-Client/releases/latest")
+var (
+	releasesURL = envOr("BUZZHEAVIER_UPDATE_URL",
+		"https://api.github.com/repos/uzergit/Buzzheavier-Client/releases/latest")
+	// releasesPage is used when the API is rate limited (60 requests an hour
+	// per IP without a login, easy to hit on shared networks).
+	releasesPage = envOr("BUZZHEAVIER_RELEASES_PAGE",
+		"https://github.com/uzergit/Buzzheavier-Client/releases")
+)
 
 const (
 	checksumsAsset = "SHA256SUMS.txt"
@@ -129,6 +135,49 @@ func ghRequest(ctx context.Context, url string) (*http.Response, error) {
 
 // checkForUpdate returns nil when this is already the newest version.
 func checkForUpdate(ctx context.Context) (*updateInfo, error) {
+	u, err := checkViaAPI(ctx)
+	if err != nil {
+		if u, err2 := checkViaPage(ctx); err2 == nil {
+			return u, nil
+		}
+	}
+	return u, err
+}
+
+// checkViaPage follows the /releases/latest redirect to learn the newest tag
+// and builds the download links from the package naming scheme.
+func checkViaPage(ctx context.Context) (*updateInfo, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodHead, releasesPage+"/latest", nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", "BuzzheavierClient/"+version)
+	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, friendlyNetErr(err)
+	}
+	resp.Body.Close()
+	loc := resp.Header.Get("Location")
+	i := strings.LastIndex(loc, "/tag/")
+	if i < 0 {
+		return nil, fmt.Errorf("could not find the latest release (HTTP %d)", resp.StatusCode)
+	}
+	tag := loc[i+len("/tag/"):]
+	if !isNewer(tag, version) {
+		return nil, nil
+	}
+	u := &updateInfo{version: strings.TrimPrefix(tag, "v"), page: releasesPage + "/tag/" + tag}
+	dl := releasesPage + "/download/" + tag + "/"
+	u.sums = &releaseAsset{Name: checksumsAsset, URL: dl + checksumsAsset}
+	if suffix, _ := packageFor(runtime.GOOS, runtime.GOARCH); suffix != "" {
+		name := "Buzzheavier-Client-" + tag + suffix
+		u.pkg = &releaseAsset{Name: name, URL: dl + name}
+	}
+	return u, nil
+}
+
+func checkViaAPI(ctx context.Context) (*updateInfo, error) {
 	resp, err := ghRequest(ctx, releasesURL)
 	if err != nil {
 		return nil, err
@@ -183,8 +232,12 @@ func (u *updateInfo) downloadAndVerify(ctx context.Context, showProgress bool) (
 	defer resp.Body.Close()
 	var body io.Reader = io.LimitReader(resp.Body, maxPackageSize)
 	var pr *progressReader
-	if showProgress && u.pkg.Size > 0 {
-		pr = newProgress(body, u.pkg.Size)
+	size := u.pkg.Size
+	if size <= 0 {
+		size = resp.ContentLength
+	}
+	if showProgress && size > 0 {
+		pr = newProgress(body, size)
 		body = pr
 	}
 	data, err := io.ReadAll(body)
@@ -383,6 +436,9 @@ func (a *App) updateScreen(u *updateInfo, auto bool) {
 	for _, l := range releaseNotesPreview(u.notes, 12) {
 		fmt.Println("  " + dim(l))
 	}
+	if u.notes == "" {
+		infof("What's new: %s", u.page)
+	}
 	fmt.Println()
 	if u.pkg == nil {
 		warnf("There is no automatic update for your system in this release.")
@@ -392,7 +448,7 @@ func (a *App) updateScreen(u *updateInfo, auto bool) {
 	}
 	if auto {
 		infof("Automatic updates are on, installing now…")
-	} else if !a.confirm(fmt.Sprintf("Download and install v%s now? (%s)", u.version, humanBytes(u.pkg.Size))) {
+	} else if !a.confirm(fmt.Sprintf("Download and install v%s now?%s", u.version, sizeHint(u.pkg.Size))) {
 		return
 	}
 	fmt.Println()
@@ -469,4 +525,11 @@ func (a *App) cliUpdate(args []string) int {
 	}
 	fmt.Printf("Updated to v%s.\n", u.version)
 	return 0
+}
+
+func sizeHint(n int64) string {
+	if n <= 0 {
+		return ""
+	}
+	return " (" + humanBytes(n) + ")"
 }

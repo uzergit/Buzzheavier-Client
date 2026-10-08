@@ -151,6 +151,44 @@ func TestUpdateRejectsBadChecksum(t *testing.T) {
 	}
 }
 
+func TestUpdateFallsBackToReleasesPage(t *testing.T) {
+	suffix, _ := packageFor(runtime.GOOS, runtime.GOARCH)
+	if suffix == "" {
+		t.Skip("no package for this system")
+	}
+	newBin := []byte("new from page")
+	pkg := buildPackage(t, pkgName(), newBin)
+	sum := sha256.Sum256(pkg)
+	name := "Buzzheavier-Client-v99.1.0" + suffix
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusForbidden) })
+	mux.HandleFunc("/releases/latest", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/releases/tag/v99.1.0", http.StatusFound)
+	})
+	mux.HandleFunc("/releases/download/v99.1.0/"+name, func(w http.ResponseWriter, r *http.Request) { w.Write(pkg) })
+	mux.HandleFunc("/releases/download/v99.1.0/SHA256SUMS.txt", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintf(w, "%s  %s\n", hex.EncodeToString(sum[:]), name)
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	oldAPI, oldPage := releasesURL, releasesPage
+	releasesURL, releasesPage = srv.URL+"/api", srv.URL+"/releases"
+	defer func() { releasesURL, releasesPage = oldAPI, oldPage }()
+
+	u, err := checkForUpdate(ctxAPI())
+	if err != nil || u == nil || u.version != "99.1.0" || u.pkg == nil {
+		t.Fatalf("fallback check: %+v %v", u, err)
+	}
+	exe := filepath.Join(t.TempDir(), "buzzheavier")
+	os.WriteFile(exe, []byte("old"), 0o755)
+	if err := applyUpdateTo(ctxAPI(), u, exe, false); err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	if got, _ := os.ReadFile(exe); !bytes.Equal(got, newBin) {
+		t.Errorf("binary not replaced")
+	}
+}
+
 func TestNoUpdateWhenCurrent(t *testing.T) {
 	fakeGitHub(t, "v"+version, []byte("x"), "")
 	if u, err := checkForUpdate(ctxAPI()); err != nil || u != nil {
