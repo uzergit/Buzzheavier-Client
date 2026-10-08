@@ -25,6 +25,7 @@ type Settings struct {
 	DefaultLocationID   string `json:"default_location_id"`
 	DefaultLocationName string `json:"default_location_name"`
 	QuickAsksOptions    bool   `json:"quick_upload_asks_options"`
+	AutoUpdate          bool   `json:"auto_update"`
 
 	dir      string
 	imported string // path of a v1 settings file that was imported on this run

@@ -48,6 +48,7 @@ Every package has a `README.txt` with the first-start steps for that system.
 - **Account & file manager:** browse your files and folders, view account info and storage locations, create folders, rename, move, change notes, delete files and folders, and copy file links. Big folders are listed in full.
 - **Settings:** Account ID (checked with Buzzheavier before saving), quick upload mode (anonymous / account / last used), default storage location, and whether quick uploads ask for options.
 - **Upload history:** every link is saved to `uploads.log`, so you can find it later.
+- **Updates:** when a new version is out, the main menu shows **u  Update**. It downloads the right package for your system, checks it against the release checksums, and restarts into the new version. Turn on *Settings → Automatic updates* to have new versions installed for you.
 
 ### Command line
 
@@ -62,6 +63,7 @@ buzzheavier upload [options] FILE...
     -n, --note TEXT      note shown under the download link
         --no-copy        don't copy links to the clipboard
 buzzheavier locations
+buzzheavier update [--yes]          install the newest version
 buzzheavier --version
 ```
 

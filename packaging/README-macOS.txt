@@ -30,3 +30,7 @@ upload them.
 
 Settings and upload history are stored in
 ~/Library/Application Support/BuzzheavierClient
+
+Updates
+  When a new version is out, the main menu shows "u  Update". Settings has
+  a switch for automatic updates.

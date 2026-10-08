@@ -18,3 +18,7 @@ Command line
   BuzzheavierClient.exe --help
 
 Settings and upload history are stored in %APPDATA%\BuzzheavierClient
+
+Updates
+  When a new version is out, the main menu shows "u  Update". Settings has
+  a switch for automatic updates.

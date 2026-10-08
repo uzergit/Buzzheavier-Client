@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unicode"
 )
@@ -23,6 +24,10 @@ type App struct {
 
 	menu      bool // the interactive menu is running; closed input quits
 	inputDone bool // stdin reached its end
+
+	updMu   sync.Mutex
+	upd     *updateInfo // newer release found by the startup check
+	updDone chan struct{}
 
 	rootID  string
 	rootFor string // Account ID that rootID belongs to
@@ -108,6 +113,12 @@ func ctxAPI() context.Context { return context.Background() }
 
 func (a *App) run() {
 	a.menu = true
+	cleanupOldBinary()
+	a.startUpdateCheck()
+	a.waitForUpdateCheck(1500 * time.Millisecond)
+	if u := a.availableUpdate(); u != nil && u.pkg != nil && a.st.AutoUpdate {
+		a.updateScreen(u, true)
+	}
 	if a.st.imported != "" {
 		header("Welcome to Buzzheavier Client " + version)
 		okf("Imported your Account ID from the v1 settings file:")
@@ -122,6 +133,10 @@ func (a *App) run() {
 		menuItem("4", "Settings")
 		menuItem("5", "Upload history")
 		menuItem("6", "Quit")
+		upd := a.availableUpdate()
+		if upd != nil {
+			menuItem("u", bold(green("Update to v"+upd.version)), "new version available")
+		}
 		rule()
 		if id := a.accountID(); id != "" {
 			fmt.Printf("  Account ID     %s\n", green("set")+" "+dim(maskSecret(id)))
@@ -149,6 +164,12 @@ func (a *App) run() {
 			a.historyScreen()
 		case "6", "q", "quit", "exit":
 			a.quit()
+		case "u", "update":
+			if upd != nil {
+				a.updateScreen(upd, false)
+			} else {
+				a.checkUpdatesNow()
+			}
 		default:
 			a.quickUpload(in)
 		}
@@ -913,8 +934,10 @@ func (a *App) settingsMenu() {
 		menuItem("4", pad("Quick upload asks for options", 30), "["+onOff(a.st.QuickAsksOptions)+"]")
 		menuItem("5", "Clear Account ID")
 		menuItem("6", "Show settings & file locations")
-		menuItem("7", "Reset to defaults")
-		menuItem("8", "Back")
+		menuItem("7", pad("Automatic updates", 30), "["+onOff(a.st.AutoUpdate)+"]")
+		menuItem("8", "Check for updates")
+		menuItem("9", "Reset to defaults")
+		menuItem("10", "Back")
 		rule()
 		if a.env != "" {
 			infof("BUZZHEAVIER_ACCOUNT_ID is set and overrides the saved Account ID.")
@@ -965,8 +988,13 @@ func (a *App) settingsMenu() {
 		case "6":
 			a.showSettings()
 		case "7":
+			a.st.AutoUpdate = !a.st.AutoUpdate
+			a.saveSettings()
+		case "8":
+			a.checkUpdatesNow()
+		case "9":
 			a.resetSettings()
-		case "8", "b", "q":
+		case "10", "b", "q":
 			return
 		}
 	}
@@ -997,6 +1025,7 @@ func (a *App) showSettings() {
 	}
 	row("Default location", loc)
 	row("Quick asks options", onOff(a.st.QuickAsksOptions)+dim(" (folder, location, note)"))
+	row("Automatic updates", onOff(a.st.AutoUpdate))
 	fmt.Println()
 	row("Settings file", a.st.path())
 	row("Upload history", a.st.logPath())

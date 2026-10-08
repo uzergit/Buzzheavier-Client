@@ -26,6 +26,12 @@ jobs:
           ./bh --version
           ./bh --help > /dev/null
           ./bh locations
+      - name: Self-update an old build to the latest release
+        shell: bash
+        run: |
+          go build -ldflags "-X main.version=1.0.0" -o old${{ runner.os == 'Windows' && '.exe' || '' }} .
+          ./old update --yes
+          ./old --version | grep -v " 1.0.0 "
 
   packages:
     runs-on: macos-latest

@@ -13,7 +13,7 @@ import (
 const repoURL = "https://github.com/uzergit/Buzzheavier-Client"
 
 // version is set at build time with -ldflags "-X main.version=...".
-var version = "2.0.0"
+var version = "2.1.0"
 
 func main() {
 	os.Exit(run(os.Args[1:]))
@@ -44,6 +44,8 @@ func run(args []string) int {
 		return 0
 	case "upload":
 		return app.cliUpload(args[1:])
+	case "update":
+		return app.cliUpdate(args[1:])
 	case "locations":
 		locs, err := app.client().Locations(ctxAPI())
 		if err != nil {
@@ -77,6 +79,7 @@ Usage:
   buzzheavier FILE...              upload files with your quick upload mode
   buzzheavier upload [options] FILE...
   buzzheavier locations            list storage locations
+  buzzheavier update [--yes]       install the newest version
   buzzheavier version
 
 Upload options:

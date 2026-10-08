@@ -17,3 +17,7 @@ copy one of them to /usr/local/bin/buzzheavier.
 Copying links to the clipboard needs wl-clipboard (Wayland), xclip or xsel.
 
 Settings and upload history are stored in ~/.config/BuzzheavierClient
+
+Updates
+  When a new version is out, the main menu shows "u  Update". Settings has
+  a switch for automatic updates.
