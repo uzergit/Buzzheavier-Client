@@ -1,5 +1,7 @@
 # Buzzheavier Client
 
+im using Claude code from now on when working on this project 🤑🤑🤑
+
 Free uploader for [buzzheavier.com](https://buzzheavier.com). Upload files anonymously or into your account, manage your files and folders, and get the download link copied to your clipboard. Runs in the terminal on Windows, macOS and Linux.
 
 **I do NOT log anything.** The only thing the client stores is your own settings and upload history, on your own computer.
