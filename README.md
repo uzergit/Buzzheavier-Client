@@ -95,3 +95,7 @@ scripts/build.sh          # builds all four release packages into dist/
 ```
 
 The original Windows batch version is kept in [`legacy/`](legacy/).
+
+## Credits
+
+Made by [uzer](https://github.com/uzergit), with help from [Claude](https://claude.ai) by Anthropic.
